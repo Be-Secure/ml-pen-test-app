@@ -53,16 +53,17 @@ def register_model(task:str, attack_type:str, aishield_client):
     
     return status, model_registration_repsone, task_type, analysis_type
 
+def make_directory(dir):
+    if os.path.isdir(dir):
+        print("directory {} already exist".format(dir))
+    if os.path.isdir(dir) is False:
+        os.mkdir(path=dir)
+        print("directory {} created successfully".format(dir))
+
 def download_zip_files(*args):
         
     zip_path=os.environ['HOME'] +'/zip'
-        
-    if os.path.isdir(zip_path):
-        print("directory {} already exist".format(zip_path))
-    if os.path.isdir(zip_path) is False:
-        os.mkdir(path=zip_path)
-        print("directory {} created successfully".format(zip_path))
-    
+    make_directory(zip_path)
     for item in args:
         response = requests.get(item)
         parsed_url = urlparse(item)
@@ -176,12 +177,7 @@ def index():
     job_id = model_analysis(task_type, analysis_type, aishield_client, model_registration_repsone)
     report_path = os.environ['HOME']+"/reports"
     status ="success"
-    
-    if os.path.isdir(report_path):
-        print("directory {} already exist".format(report_path))
-    if os.path.isdir(report_path) is False:
-        os.mkdir(path=report_path)
-        print("directory {} created successfully".format(report_path))
+    make_directory(report_path)
     download_analysis_reports(status, report_path, aishield_client, job_id)
     return "Analysis in progress"
 
