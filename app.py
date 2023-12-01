@@ -1,6 +1,20 @@
 import os
+import time
+import json
 from urllib.parse import urlparse
+import tqdm
+import shutil
+import random
+import zipfile
 import requests
+import numpy as np
+from time import sleep
+import cv2
+import tensorflow as tf
+from tensorflow import keras
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from tensorflow.keras import datasets, layers, optimizers, Sequential
 import aishield as ais
 from flask import Flask, request
 
@@ -8,14 +22,14 @@ from flask import Flask, request
 app = Flask(__name__)
 pypi = True
 
-def init_aishield():
+def init_aishield(org_id_val):
     """
     Description : AIShield URL , subscription key and orgid
                 Initialize the
     """
     base_url = "https://api.aws.boschaishield.com/prod"
     url=base_url+"/api/ais/v1.5"
-    org_id = '############' #<<Copy Org_id mentioned in welcome mail after AIShield Subscription>>
+    org_id = org_id_val #<<Copy Org_id mentioned in welcome mail after AIShield Subscription>>
 
 
     """
@@ -53,16 +67,17 @@ def register_model(task:str, attack_type:str, aishield_client):
     
     return status, model_registration_repsone, task_type, analysis_type
 
+def create_dir(dir):
+    if os.path.isdir(dir):
+        print("directory {} already exist".format(dir))
+    if os.path.isdir(dir) is False:
+        os.mkdir(path=dir)
+        print("directory {} created successfully".format(dir))
+
 def download_zip_files(*args):
         
     zip_path=os.environ['HOME'] +'/zip'
-        
-    if os.path.isdir(zip_path):
-        print("directory {} already exist".format(zip_path))
-    if os.path.isdir(zip_path) is False:
-        os.mkdir(path=zip_path)
-        print("directory {} created successfully".format(zip_path))
-    
+    create_dir(zip_path)
     for item in args:
         response = requests.get(item)
         parsed_url = urlparse(item)
@@ -156,6 +171,43 @@ def download_analysis_reports(status, report_path, aishield_client, job_id):
 
         def_artifact_report = aishield_client.save_job_report(job_id=job_id, output_config=output_conf_def_art)
 
+def get_x_api_key(org_id_val):
+    headers = {
+        'org_id': org_id_val
+    }
+    response = requests.get('https://api.aws.boschaishield.com/prod/api/ais/v1.5/get_aws_api_key', headers=headers)
+    if response.status_code == 200:
+        # Print the entire response content
+        x_api_key_data = response.json()        
+    else:
+        # Print the error status code and content
+        print(f"Error: {response.status_code}")
+        print(response.text)
+    return x_api_key_data['x_api_key']
+
+def get_job_meta_data(x_api_key_val, org_id_val, job_id_val):
+    headers = {
+        'x-api-key': x_api_key_val,
+        'org_id': org_id_val
+    }
+    payload = {
+        'job_id': job_id_val
+    }
+    response = requests.get('https://api.aws.boschaishield.com/prod/api/ais/v1.5/job_detail', headers=headers, params=payload)
+
+    if response.status_code == 200:
+        # Print the entire response content
+        job_meta_data_all = response.json()
+        print(job_meta_data_all)
+        
+    else:
+        # Print the error status code and content
+        print(f"Error: {response.status_code}")
+        print(response.text)
+    
+    job_meta_data = {}
+    job_meta_data.update({'AttackType': job_meta_data_all['AttackType'], 'ModeInformation': job_meta_data_all['ModelInformation'], 'Time': job_meta_data_all['CreatedTimestamp'], 'AttackQueries': job_meta_data_all['NumerofAttackQueries'], 'VulnerabilityThreshold': job_meta_data_all['VulnerabiltiyThreshold']})    
+    return job_meta_data  
 
 # Define a route and its corresponding view function
 @app.route('/ml/assessment/', methods=['POST'])
@@ -164,26 +216,31 @@ def index():
 # def index(model_url, data_url, label_url, task, attack_type):
     data = request.get_json() 
     # print(data)
+    org_id = '##########'
     model_url = data['model_url']
     data_url = data['data_url']
     label_url = data['label_url']
     task = data['task']
     attack_type = data['attack_type']
-    aishield_client = init_aishield()
+    aishield_client = init_aishield(org_id)
     status, model_registration_repsone, task_type, analysis_type = register_model(task, attack_type, aishield_client)
     zip_path = download_zip_files(model_url, data_url, label_url)
     upload_artifacts(zip_path, status, model_registration_repsone, aishield_client)
     job_id = model_analysis(task_type, analysis_type, aishield_client, model_registration_repsone)
-    report_path = os.environ['HOME']+"/reports"
-    status ="success"
+    x_api_key = get_x_api_key(org_id)
+    job_meta_data = get_job_meta_data(x_api_key, org_id, job_id)
+    return job_meta_data
     
-    if os.path.isdir(report_path):
-        print("directory {} already exist".format(report_path))
-    if os.path.isdir(report_path) is False:
-        os.mkdir(path=report_path)
-        print("directory {} created successfully".format(report_path))
-    download_analysis_reports(status, report_path, aishield_client, job_id)
-    return "Analysis in progress"
+    # report_path = os.environ['HOME']+"/reports"
+    # status ="success"
+    
+    # if os.path.isdir(report_path):
+    #     print("directory {} already exist".format(report_path))
+    # if os.path.isdir(report_path) is False:
+    #     os.mkdir(path=report_path)
+    #     print("directory {} created successfully".format(report_path))
+    # download_analysis_reports(status, report_path, aishield_client, job_id)
+    # return "Analysis in progress"
 
 # Run the app if this file is executed directly
 if __name__ == '__main__':
