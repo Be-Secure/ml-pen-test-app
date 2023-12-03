@@ -1,23 +1,10 @@
 import os
-import time
-import json
 from urllib.parse import urlparse
-import tqdm
-import shutil
-import random
-import zipfile
 import requests
-import numpy as np
-from time import sleep
-import cv2
-import tensorflow as tf
-from tensorflow import keras
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from tensorflow.keras import datasets, layers, optimizers, Sequential
 import aishield as ais
 from flask import Flask, request
-
+import json
+import base64
 # Create a Flask app instance
 app = Flask(__name__)
 pypi = True
@@ -198,7 +185,7 @@ def get_job_meta_data(x_api_key_val, org_id_val, job_id_val):
     if response.status_code == 200:
         # Print the entire response content
         job_meta_data_all = response.json()
-        print(job_meta_data_all)
+        # print(job_meta_data_all)
         
     else:
         # Print the error status code and content
@@ -206,9 +193,30 @@ def get_job_meta_data(x_api_key_val, org_id_val, job_id_val):
         print(response.text)
     
     job_meta_data = {}
-    job_meta_data.update({'AttackType': job_meta_data_all['AttackType'], 'ModeInformation': job_meta_data_all['ModelInformation'], 'Time': job_meta_data_all['CreatedTimestamp'], 'AttackQueries': job_meta_data_all['NumerofAttackQueries'], 'VulnerabilityThreshold': job_meta_data_all['VulnerabiltiyThreshold']})    
+    job_meta_data.update({'JobID': job_id_val,'AttackType': job_meta_data_all['AttackType'], 'ModelInformation': job_meta_data_all['ModelInformation'], 'Time': job_meta_data_all['CreatedTimestamp'], 'AttackQueries': job_meta_data_all['NumerofAttackQueries'], 'VulnerabilityThreshold': job_meta_data_all['VulnerabiltiyThreshold']})    
     return job_meta_data  
 
+def upload_to_github(owner, repo, path, access_token, data):
+    
+    url = f'https://api.github.com/repos/{owner}/{repo}/contents/{path}'
+    json_string = json.dumps(data, indent=4)
+    base64_content = base64.b64encode(json_string.encode()).decode()
+    data = {
+        "message": "Adding file",
+        "content": base64_content
+    }
+    headers = {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': f'Bearer {access_token}',
+        'X-GitHub-Api-Version': '2022-11-28'
+    }
+    response = requests.put(url, json=data, headers=headers)
+
+    if response.status_code == 201:
+        return "File with JSON contents successfully created/updated on GitHub!"
+    else:
+        return f"Failed to create/update file. Status code: {response.status_code}, Error: {response.text}"
+        
 # Define a route and its corresponding view function
 @app.route('/ml/assessment/', methods=['POST'])
 def index():
@@ -216,21 +224,26 @@ def index():
 # def index(model_url, data_url, label_url, task, attack_type):
     data = request.get_json() 
     # print(data)
-    org_id = '##########'
-    model_url = data['model_url']
-    data_url = data['data_url']
-    label_url = data['label_url']
-    task = data['task']
-    attack_type = data['attack_type']
+    org_id = '#########' #### Paste org id
+    owner = 'asa1997'
+    repo = 'besecure-ml-assessment-datastore'
+    job_meta_data_path = 'models/bes-image-classification/fuzz-test/JobMetadata.json'
+    access_token = '##########' #### Paste github access token
+    ModelUrl = data['ModelUrl']
+    DataUrl = data['DataUrl']
+    LabelUrl = data['LabelUrl']
+    Task = data['Task']
+    AnalysisType = data['AnalysisType']
     aishield_client = init_aishield(org_id)
-    status, model_registration_repsone, task_type, analysis_type = register_model(task, attack_type, aishield_client)
-    zip_path = download_zip_files(model_url, data_url, label_url)
+    status, model_registration_repsone, task_type, analysis_type = register_model(Task, AnalysisType, aishield_client)
+    zip_path = download_zip_files(ModelUrl, DataUrl, LabelUrl)
     upload_artifacts(zip_path, status, model_registration_repsone, aishield_client)
     job_id = model_analysis(task_type, analysis_type, aishield_client, model_registration_repsone)
     x_api_key = get_x_api_key(org_id)
     job_meta_data = get_job_meta_data(x_api_key, org_id, job_id)
-    return job_meta_data
-    
+    job_meta_data.update({'ModelUrl': data['ModelUrl'], 'DataUrl': data['DataUrl'], 'LabelUrl': data['LabelUrl']})
+    output = upload_to_github(owner, repo, job_meta_data_path, access_token, job_meta_data)
+    return output
     # report_path = os.environ['HOME']+"/reports"
     # status ="success"
     
@@ -241,6 +254,7 @@ def index():
     #     print("directory {} created successfully".format(report_path))
     # download_analysis_reports(status, report_path, aishield_client, job_id)
     # return "Analysis in progress"
+    
 
 # Run the app if this file is executed directly
 if __name__ == '__main__':
