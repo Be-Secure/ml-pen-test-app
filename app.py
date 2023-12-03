@@ -241,7 +241,6 @@ def index():
     #     print("directory {} created successfully".format(report_path))
     # download_analysis_reports(status, report_path, aishield_client, job_id)
     # return "Analysis in progress"
-
 # Run the app if this file is executed directly
 if __name__ == '__main__':
     app.run(debug=True)
